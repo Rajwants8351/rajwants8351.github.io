@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://objectionle.github.io/sitemap.xml
