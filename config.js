@@ -4,7 +4,7 @@
 window.OBJECTIONLE_CONFIG = {
 
   // 1. Your Supabase Project URL. It looks like: https://abcdefgh.supabase.co
-  communityUrl: "https://wcjsizoxinfiwpbqjdos.supabase.co/rest/v1/ ",
+  communityUrl: "https://wcjsizoxinfiwpbqjdos.supabase.co",
 
   // 2. Your Supabase Publishable key (starts with sb_publishable_) or the older "anon" key (starts with eyJ).
   //    NEVER paste a "secret" or "service_role" key here.
