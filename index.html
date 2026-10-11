@@ -236,7 +236,7 @@ pre.dump{max-height:240px;overflow:auto;background:var(--bg);border:1px solid va
    ===================================================================== */
 
 /* ---------- 1. CONSTANTS ---------- */
-const APP_VERSION="2026.10.10-b";
+const APP_VERSION="2026.10.11-a";
 const CFG=(typeof window!=="undefined"&&window.OBJECTIONLE_CONFIG)||{};
 const MAX_GUESSES=6, PEN_WRONG=100, PEN_SKIP=50, PEN_HINT=25, DEFAULT_START=500, ROUNDS=5, DAILY_START=CFG.dailyStart||"2026-10-09";
 const T={OB:"Objection",HE:"Hearsay exception",HX:"Hearsay exclusion (not hearsay by definition)",NT:"Non-hearsay purpose",RS:"Response to an objection",FD:"Foundation requirement",PV:"Privilege",IM:"Impeachment technique",EX:"Examination technique",AD:"Admissibility doctrine",RM:"Request or step for the court"};
@@ -697,8 +697,8 @@ async function commSend(day){
   const r=store.daily.results[day];
   if(!r||r.sent||!commOn()||(r.solved&&!r.clue))return;
   try{
-    const res=await fetch(COMMUNITY.url+"/rest/v1/daily_results?on_conflict=day,device_id",{method:"POST",headers:{...sbHeaders(),Prefer:"resolution=ignore-duplicates,return=minimal"},body:JSON.stringify({day,device_id:deviceId(),clue:r.solved?r.clue:0,guesses:r.guesses})});
-    if(res.ok){r.sent=true;save();}
+    const res=await fetch(COMMUNITY.url+"/rest/v1/daily_results",{method:"POST",headers:{...sbHeaders(),Prefer:"return=minimal"},body:JSON.stringify({day,device_id:deviceId(),clue:r.solved?r.clue:0,guesses:r.guesses})});
+    if(res.ok||res.status===409){r.sent=true;save();}
   }catch(e){}
 }
 async function commFetch(day){
@@ -732,12 +732,16 @@ function track(kind,f){
 let flushing=false;
 async function flushEvents(){
   if(!commOn()||flushing||!store.queue||!store.queue.length)return;
-  flushing=true;const batch=store.queue.slice(0,50);let more=false;
+  flushing=true;let progress=false;
   try{
-    const res=await fetch(COMMUNITY.url+"/rest/v1/events?on_conflict=id",{method:"POST",headers:{...sbHeaders(),Prefer:"resolution=ignore-duplicates,return=minimal"},body:JSON.stringify(batch),keepalive:true});
-    if(res.ok||res.status===400||res.status===422){const ids=new Set(batch.map(e=>e.id));store.queue=store.queue.filter(e=>!ids.has(e.id));save();more=res.ok&&store.queue.length>0;}
+    for(const ev of store.queue.slice(0,50)){
+      const res=await fetch(COMMUNITY.url+"/rest/v1/events",{method:"POST",headers:{...sbHeaders(),Prefer:"return=minimal"},body:JSON.stringify(ev),keepalive:true});
+      if(res.ok||res.status===409||res.status===400||res.status===422){store.queue=store.queue.filter(e=>e.id!==ev.id);progress=true;}
+      else break;
+    }
+    save();
   }catch(e){}
-  flushing=false;if(more)flushEvents();
+  flushing=false;if(progress&&store.queue.length)flushEvents();
 }
 function logError(msg){
   ui.localErrors=ui.localErrors||[];if(ui.localErrors.length>=5)return;
@@ -750,11 +754,11 @@ async function checkDb(){
   else if(!keyLooksSafe(COMMUNITY.key))m="That key is a private key, so it is being ignored for safety. Use the publishable (or anon) key instead.";
   else{
     const out=[];
-    try{const r=await fetch(COMMUNITY.url+"/rest/v1/daily_results?on_conflict=day,device_id",{method:"POST",headers:{...sbHeaders(),Prefer:"resolution=ignore-duplicates,return=minimal"},body:JSON.stringify({day:"connection-test",device_id:"test-"+Math.random().toString(36).slice(2),clue:0,guesses:0})});
-      out.push(r.ok?"Saving Daily results works.":"Saving Daily results FAILED (error "+r.status+"). Run the setup SQL again.");}
+    try{const r=await fetch(COMMUNITY.url+"/rest/v1/daily_results",{method:"POST",headers:{...sbHeaders(),Prefer:"return=minimal"},body:JSON.stringify({day:"connection-test",device_id:"test-"+Math.random().toString(36).slice(2),clue:0,guesses:0})});
+      out.push((r.ok||r.status===409)?"Saving Daily results works.":"Saving Daily results FAILED (error "+r.status+").");}
     catch(e){out.push("Could not reach the database. Check the address in config.js.");}
-    try{const r=await fetch(COMMUNITY.url+"/rest/v1/events?on_conflict=id",{method:"POST",headers:{...sbHeaders(),Prefer:"resolution=ignore-duplicates,return=minimal"},body:JSON.stringify([{id:uuid4(),device_id:"connection-test",kind:"test",ver:APP_VERSION}])});
-      out.push(r.ok?"Saving play counts works.":"Saving play counts FAILED (error "+r.status+"). Run the setup SQL again.");}
+    try{const r=await fetch(COMMUNITY.url+"/rest/v1/events",{method:"POST",headers:{...sbHeaders(),Prefer:"return=minimal"},body:JSON.stringify([{id:uuid4(),device_id:"connection-test",kind:"test",ver:APP_VERSION}])});
+      out.push((r.ok||r.status===409)?"Saving play counts works.":"Saving play counts FAILED (error "+r.status+").");}
     catch(e){out.push("Play counts could not be sent.");}
     try{const c=await commFetch(nyDate());out.push("Reading results works. Players so far today: "+c.reduce((a,b)=>a+b,0)+".");}
     catch(e){out.push("Reading FAILED ("+e.message+"). Run the setup SQL again.");}
@@ -950,7 +954,7 @@ async function runSiteCheck(){
     add("Copy to clipboard (Share button)",(navigator.clipboard&&navigator.clipboard.writeText)?"pass":"warn");
     if(commOn()){
       try{await commFetch(nyDate());add("Database: reading Daily results","pass");}catch(e){add("Database: reading Daily results","fail",e.message);}
-      try{const r=await fetch(COMMUNITY.url+"/rest/v1/events?on_conflict=id",{method:"POST",headers:{...sbHeaders(),Prefer:"resolution=ignore-duplicates,return=minimal"},body:JSON.stringify([{id:uuid4(),device_id:"admin-check",kind:"test",ver:APP_VERSION,msg:"site check"}])});add("Database: saving play counts",r.ok?"pass":"fail",r.ok?"":"HTTP "+r.status);}catch(e){add("Database: saving play counts","fail","Could not reach the database");}
+      try{const r=await fetch(COMMUNITY.url+"/rest/v1/events",{method:"POST",headers:{...sbHeaders(),Prefer:"return=minimal"},body:JSON.stringify([{id:uuid4(),device_id:"admin-check",kind:"test",ver:APP_VERSION,msg:"site check"}])});add("Database: saving play counts",(r.ok||r.status===409)?"pass":"fail",(r.ok||r.status===409)?"":"HTTP "+r.status);}catch(e){add("Database: saving play counts","fail","Could not reach the database");}
       try{const diff=Math.abs(Date.now()-new Date(adm.data.generated).getTime());add("This device’s clock",diff<300000?"pass":"warn",diff<300000?"Within 5 minutes of the server":"Off by about "+Math.round(diff/60000)+" minutes");}catch(e){}
       const e24=(adm.data.errors||[]).filter(x=>Date.now()-new Date(x.ts).getTime()<864e5).length;
       add("Errors in the last 24 hours",e24?"warn":"pass",e24?e24+" logged (see Errors)":"None");
